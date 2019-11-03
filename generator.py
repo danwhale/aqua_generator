@@ -1,12 +1,14 @@
 from itertools import chain
 import math, time, sys, random, numpy as np, copy
-import numpy as np, json, plotly.graph_objs as go, networkx as nx
+import json, plotly.graph_objs as go, networkx as nx
 from plotly import tools
 from plotly.offline import plot
+from utils import *
 
 class Generator:
     def __init__(self, N, m, r):
-        self.G = nx.Graph(N=N)
+        self.N = N
+        self.G = nx.Graph()
         self.m = m
         self.r = r
         #initialize nodes
@@ -16,6 +18,8 @@ class Generator:
 
         self.rand_edge = random.Random()
         self.rand_edge.seed('edges')
+        self.rand_remove = random.Random()
+        self.rand_remove.seed('remove')
 
         self.plot_data = []
 
@@ -25,26 +29,24 @@ class Generator:
 
     def get_probs(self, graph, u, eps):
         res = []
-        sum_mods = sum([abs(graph.degree(u) - graph.degree(v)) for v in graph.nodes])
-        sum_deg = sum([graph.degree(v) for v in graph.nodes])
+        sum_rating = sum([graph.nodes[v]['rating'] for v in graph.nodes])
         for n in graph.nodes():  # список узлов всегда упорядочен
             if n == u:
                 res.append(0)
             else:
-                res.append(self._edge_prob(graph, u, n, sum_mods, sum_deg, eps))
+                res.append(self._edge_prob(graph, u, n, sum_rating, graph.nodes[u]['pop_sim']))
         return res
 
-    def _edge_prob(graph, u, v, sum_mods, sum_deg, eps):
-        this_k = graph.degree(u)  # this node degree
-        k = graph.degree(v)  # target node degree
+    def _edge_prob(self,graph, u, v, sum_rating, eps):
+        
 
-        sim_p = (1 - abs(this_k - k) / sum_mods) / (len(graph) - 1)
+        sim_p = cosine_similarity(graph.nodes[u]['vector'],graph.nodes[v]['vector'])
 
         # check if the resulting probability is in [0;1]
         if sim_p < 0 or sim_p > 1:
             raise NameError('Prob Sim is not in range. P=' + str(sim_p))
 
-        pop_p = k / sum_deg
+        pop_p = graph.nodes[v]['rating'] /  sum_rating
 
         if pop_p < 0 or pop_p > 1:
             raise NameError('Prob Pop is not in range. P=' + str(pop_p))
@@ -54,25 +56,26 @@ class Generator:
 
     def step(self):
         for i in range(0, self.N):
-            print(i)
             for j in range(self.m):
-                probs = self.get_probs(self.G, i, self.G.nodes[i]['pop_sim'])
+                self.probs = self.get_probs(self.G, i, self.G.nodes[i]['pop_sim'])
 
-                s = sum(probs)
+                s = sum(self.probs)
 
                 r = self.rand_edge.uniform(0, s)
-                k = 0
+                k = -1
                 while r >= 0:
-
-                    r -= probs[k]
                     k += 1
+                    r -= self.probs[k]
+                    
 
                 self.G.add_edge(i, k)
 
             for i in range(0, self.N):
-                if self.G.degree(i) > 0:
-
+                if self.G.degree(i) > 0 and self.rand_remove.uniform(0,1) < self.r:
+                    d = {nb:self.probs[nb] for nb in self.G.neighbors(i)}
+                    to_remove = min(d, key = d.get)
+                    self.G.remove_edge(i,to_remove)
+                        
            #plot_data.append(plot_graph(G, pos))
             #pos = nx.spring_layout(G, pos=pos)
         #return G, #plot_data
-
